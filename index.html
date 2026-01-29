@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Warzone 2D - Fix</title>
+    <style>
+        /* CSS TRỰC TIẾP TẠI ĐÂY */
+        body { margin: 0; overflow: hidden; background: #222; font-family: sans-serif; cursor: none; }
+        canvas { display: block; background: #3e3e32; }
+        #ui { position: absolute; top: 10px; left: 10px; color: #0f0; z-index: 10; pointer-events: none; }
+        .stat { background: rgba(0,0,0,0.5); padding: 5px 10px; margin-bottom: 2px; border-left: 3px solid #0f0; }
+        #upgrade-menu {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: #111; color: #fff; padding: 20px; border: 2px solid #ffcc00;
+            display: none; text-align: center; z-index: 20;
+        }
+        button { padding: 10px; margin: 5px; cursor: pointer; background: #333; color: #fff; border: 1px solid #fff; }
+        #aim { position: fixed; width: 20px; height: 20px; border: 2px solid red; border-radius: 50%; 
+               transform: translate(-50%, -50%); pointer-events: none; z-index: 100; }
+    </style>
+</head>
+<body>
+    <div id="aim"></div>
+    <div id="ui">
+        <div class="stat">LEVEL: <span id="lvl">1</span></div>
+        <div class="stat">SCORE: <span id="scr">0</span></div>
+    </div>
+
+    <div id="upgrade-menu">
+        <h2>LEVEL UP!</h2>
+        <button onclick="upgrade('speed')">Tốc độ chạy</button>
+        <button onclick="upgrade('bullet')">Tốc độ đạn</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        // JS TRỰC TIẾP TẠI ĐÂY
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const aim = document.getElementById('aim');
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let player = { x: canvas.width/2, y: canvas.height/2, speed: 5, bSpeed: 12, lastShot: 0 };
+        let mouse = { x: 0, y: 0 };
+        let keys = {};
+        let bullets = [];
+        let enemies = [];
+        let enemyBullets = [];
+        let level = 1;
+        let score = 0;
+        let paused = false;
+
+        window.addEventListener('mousemove', e => {
+            mouse.x = e.clientX; mouse.y = e.clientY;
+            aim.style.left = e.x + 'px'; aim.style.top = e.y + 'px';
+        });
+        window.addEventListener('keydown', e => keys[e.code] = true);
+        window.addEventListener('keyup', e => keys[e.code] = false);
+        window.addEventListener('mousedown', () => { if(!paused) shoot(); });
+
+        function shoot() {
+            const angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+            bullets.push({ x: player.x, y: player.y, vx: Math.cos(angle)*player.bSpeed, vy: Math.sin(angle)*player.bSpeed });
+        }
+
+        function spawn() {
+            for(let i=0; i<level*3; i++) {
+                enemies.push({ x: Math.random()*canvas.width, y: Math.random() < 0.5 ? -50 : canvas.height+50, lastShot: 0 });
+            }
+        }
+
+        function upgrade(type) {
+            if(type === 'speed') player.speed += 2;
+            if(type === 'bullet') player.bSpeed += 5;
+            level++;
+            document.getElementById('lvl').innerText = level;
+            document.getElementById('upgrade-menu').style.display = 'none';
+            paused = false;
+            spawn();
+        }
+
+        function loop() {
+            if (!paused) {
+                // Di chuyển
+                if(keys['KeyW']) player.y -= player.speed;
+                if(keys['KeyS']) player.y += player.speed;
+                if(keys['KeyA']) player.x -= player.speed;
+                if(keys['KeyD']) player.x += player.speed;
+
+                // Update đạn người chơi
+                bullets.forEach((b, i) => {
+                    b.x += b.vx; b.y += b.vy;
+                    if(b.x<0 || b.x>canvas.width || b.y<0 || b.y>canvas.height) bullets.splice(i, 1);
+                });
+
+                // Update địch
+                enemies.forEach((e, i) => {
+                    let angle = Math.atan2(player.y - e.y, player.x - e.x);
+                    e.x += Math.cos(angle) * 2;
+                    e.y += Math.sin(angle) * 2;
+
+                    // Địch bắn (Tốc độ đạn = 3/4 người chơi)
+                    if(Date.now() - e.lastShot > 2000) {
+                        enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(angle)*(player.bSpeed*0.75), vy: Math.sin(angle)*(player.bSpeed*0.75) });
+                        e.lastShot = Date.now();
+                    }
+
+                    // Check đạn trúng địch
+                    bullets.forEach((b, bi) => {
+                        if(Math.hypot(e.x - b.x, e.y - b.y) < 20) {
+                            enemies.splice(i, 1); bullets.splice(bi, 1);
+                            score += 10; document.getElementById('scr').innerText = score;
+                        }
+                    });
+                });
+
+                // Update đạn địch
+                enemyBullets.forEach((eb, i) => {
+                    eb.x += eb.vx; eb.y += eb.vy;
+                    if(Math.hypot(eb.x - player.x, eb.y - player.y) < 20) {
+                        enemyBullets.splice(i, 1); // Trúng người
+                    }
+                });
+
+                if(enemies.length === 0) {
+                    paused = true;
+                    document.getElementById('upgrade-menu').style.display = 'block';
+                }
+            }
+
+            // Vẽ
+            ctx.fillStyle = '#3e3e32';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Vẽ Player & Súng xoay
+            ctx.save();
+            ctx.translate(player.x, player.y);
+            ctx.rotate(Math.atan2(mouse.y - player.y, mouse.x - player.x));
+            ctx.fillStyle = '#4a5d23'; ctx.beginPath(); ctx.arc(0,0,20,0,Math.PI*2); ctx.fill(); // Thân
+            ctx.fillStyle = '#111'; ctx.fillRect(10, -5, 30, 10); // Súng
+            ctx.restore();
+
+            // Vẽ Địch
+            ctx.fillStyle = 'red';
+            enemies.forEach(e => { ctx.beginPath(); ctx.arc(e.x, e.y, 15, 0, Math.PI*2); ctx.fill(); });
+
+            // Vẽ Đạn
+            ctx.fillStyle = 'yellow'; bullets.forEach(b => ctx.fillRect(b.x, b.y, 5, 5));
+            ctx.fillStyle = 'orange'; enemyBullets.forEach(eb => ctx.fillRect(eb.x, eb.y, 5, 5));
+
+            requestAnimationFrame(loop);
+        }
+
+        spawn();
+        loop();
+    </script>
+</body>
+</html>
